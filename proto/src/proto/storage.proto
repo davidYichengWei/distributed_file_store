@@ -1,0 +1,61 @@
+syntax = "proto3";
+package storage;
+
+import "common.proto";
+
+service StorageServer {
+    // Client to Storage Server
+    rpc PutFileChunk (PutFileChunkRequest) returns (PutFileChunkResponse);
+    rpc DeleteFileChunk (DeleteFileChunkRequest) returns (DeleteFileChunkResponse);
+    rpc RollbackFileChunk (RollbackFileChunkRequest) returns (RollbackFileChunkResponse);
+    rpc GetFileChunk (GetFileChunkRequest) returns (GetFileChunkResponse);
+
+    // Storage Server to Storage Server
+    rpc TransmitFileChunkBetweenStorageServer (TransmitFileChunkRequest) returns (TransmitFileChunkResponse);
+
+    // Metadata Server to Storage Server
+    rpc TransmitFileChunk (TransmitFileChunkRequest) returns (TransmitFileChunkResponse);
+}
+
+message PutFileChunkRequest {
+    common.FileChunk chunk = 1;
+}
+
+message PutFileChunkResponse {
+    common.Status status = 1;
+}
+
+message DeleteFileChunkRequest {
+    string chunk_id = 1;
+}
+
+message DeleteFileChunkResponse {
+    common.Status status = 1;
+}
+
+message RollbackFileChunkRequest {
+    string chunk_id = 1;
+}
+
+message RollbackFileChunkResponse {
+    common.Status status = 1;
+}
+
+message GetFileChunkRequest {
+    string chunk_id = 1;
+}
+
+message GetFileChunkResponse {
+    common.Status status = 1;
+    common.FileChunk chunk = 2;
+}
+
+message TransmitFileChunkRequest {
+    string chunk_id = 1;
+    string target_server = 2;
+    common.FileChunk chunk = 3;
+}
+
+message TransmitFileChunkResponse {
+    common.Status status = 1;
+}

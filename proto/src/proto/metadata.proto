@@ -1,0 +1,63 @@
+syntax = "proto3";
+package metadata;
+
+import "common.proto";
+
+enum FileOperation {
+    GET = 0;
+    PUT = 1;
+}
+
+service MetadataServer {
+    // Client to Metadata Server
+    rpc RequestFileMetadata (RequestFileMetadataRequest) returns (RequestFileMetadataResponse);
+    rpc CommitPut (CommitPutRequest) returns (CommitPutResponse);
+    rpc RollbackPut (RollbackPutRequest) returns (RollbackPutResponse);
+    rpc DecrementClientOngoingRequest (DecrementRequestRequest) returns (DecrementRequestResponse);
+
+    // Storage Server to Metadata Server
+    rpc AddServer (AddServerRequest) returns (AddServerResponse);
+}
+
+message RequestFileMetadataRequest {
+    FileOperation operation = 1;
+    string filename = 2;
+    optional uint64 file_size = 3;
+}
+
+message RequestFileMetadataResponse {
+    common.Status status = 1;
+    common.FileMetadata metadata = 2;
+}
+
+message CommitPutRequest {
+    string filename = 1;
+    common.FileMetadata metadata = 2;
+}
+
+message CommitPutResponse {
+    common.Status status = 1;
+}
+
+message RollbackPutRequest {
+    string filename = 1;
+}
+
+message RollbackPutResponse {
+    common.Status status = 1;
+}
+
+message DecrementRequestRequest {}
+
+message DecrementRequestResponse {
+    common.Status status = 1;
+}
+
+message AddServerRequest {
+    string server_id = 1;
+    string address = 2;
+}
+
+message AddServerResponse {
+    common.Status status = 1;
+}

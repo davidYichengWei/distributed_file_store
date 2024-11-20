@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "proto",
+    "client",
+    "metadata-server",
+    "storage-server",
+    "common"
+]
+resolver = "2"
