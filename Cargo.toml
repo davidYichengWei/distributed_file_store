@@ -4,6 +4,7 @@ members = [
     "client",
     "metadata-server",
     "storage-server",
-    "common"
+    "common",
+    "test-client"
 ]
 resolver = "2"

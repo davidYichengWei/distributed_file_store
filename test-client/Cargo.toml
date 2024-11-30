@@ -1,0 +1,16 @@
+[package]
+name = "test-client"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "test-client"
+path = "src/main.rs"
+
+[dependencies]
+proto = { path = "../proto" }
+common = { path = "../common" }
+tonic = "0.10"
+tokio = { version = "1.0", features = ["full"] }
+anyhow = "1.0"
+clap = { version = "4.4", features = ["derive"] }
