@@ -6,6 +6,7 @@ import "common.proto";
 enum FileOperation {
     GET = 0;
     PUT = 1;
+    DELETE = 2;
 }
 
 service MetadataServer {
@@ -22,7 +23,6 @@ service MetadataServer {
 message RequestFileMetadataRequest {
     FileOperation operation = 1;
     string filename = 2;
-    optional uint64 file_size = 3;
 }
 
 message RequestFileMetadataResponse {
@@ -32,7 +32,6 @@ message RequestFileMetadataResponse {
 
 message CommitPutRequest {
     string filename = 1;
-    common.FileMetadata metadata = 2;
 }
 
 message CommitPutResponse {
@@ -54,8 +53,8 @@ message DecrementRequestResponse {
 }
 
 message AddServerRequest {
-    string server_id = 1;
-    string address = 2;
+    string server_address = 1;
+    uint32 server_port = 2;
 }
 
 message AddServerResponse {
