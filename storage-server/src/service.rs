@@ -56,22 +56,67 @@ impl StorageServer for StorageService {
 
     async fn delete_file_chunk(
         &self,
-        _request: Request<DeleteFileChunkRequest>,
+        request: Request<DeleteFileChunkRequest>,
     ) -> Result<Response<DeleteFileChunkResponse>, Status> {
-        println!("delete_file_chunk not implemented");
-        Ok(Response::new(DeleteFileChunkResponse {
-            status: CommonStatus::Ok as i32,
-        }))
+        let request = request.into_inner();
+        let chunk_path = self.get_chunk_path(&request.file_name, request.chunk_index);
+
+        match fs::remove_file(&chunk_path).await {
+            Ok(_) => {
+                println!("Successfully deleted chunk at {:?}", chunk_path);
+                Ok(Response::new(DeleteFileChunkResponse {
+                    status: CommonStatus::Ok as i32,
+                }))
+            }
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::NotFound => {
+                    println!("Chunk not found at {:?}", chunk_path);
+                    Ok(Response::new(DeleteFileChunkResponse {
+                        status: CommonStatus::Error as i32,
+                    }))
+                }
+                _ => {
+                    println!("Failed to delete chunk: {}", e);
+                    Ok(Response::new(DeleteFileChunkResponse {
+                        status: CommonStatus::Error as i32,
+                    }))
+                }
+            },
+        }
     }
 
     async fn rollback_file_chunk(
         &self,
-        _request: Request<RollbackFileChunkRequest>,
+        request: Request<RollbackFileChunkRequest>,
     ) -> Result<Response<RollbackFileChunkResponse>, Status> {
-        println!("rollback_file_chunk not implemented");
-        Ok(Response::new(RollbackFileChunkResponse {
-            status: CommonStatus::Ok as i32,
-        }))
+        let request = request.into_inner();
+        let chunk_path = self.get_chunk_path(&request.file_name, request.chunk_index);
+
+        match fs::remove_file(&chunk_path).await {
+            Ok(_) => {
+                println!(
+                    "Successfully rolled back (deleted) chunk at {:?}",
+                    chunk_path
+                );
+                Ok(Response::new(RollbackFileChunkResponse {
+                    status: CommonStatus::Ok as i32,
+                }))
+            }
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::NotFound => {
+                    println!("Chunk not found at {:?}", chunk_path);
+                    Ok(Response::new(RollbackFileChunkResponse {
+                        status: CommonStatus::Error as i32,
+                    }))
+                }
+                _ => {
+                    println!("Failed to rollback chunk: {}", e);
+                    Ok(Response::new(RollbackFileChunkResponse {
+                        status: CommonStatus::Error as i32,
+                    }))
+                }
+            },
+        }
     }
 
     async fn get_file_chunk(
