@@ -1,9 +1,10 @@
 use proto::common::Status as CommonStatus;
+use proto::storage::storage_server_client::StorageServerClient;
 use proto::storage::storage_server_server::StorageServer;
 use proto::storage::{
-    DeleteFileChunkRequest, DeleteFileChunkResponse, GetFileChunkRequest, GetFileChunkResponse,
-    PutFileChunkRequest, PutFileChunkResponse, RollbackFileChunkRequest, RollbackFileChunkResponse,
-    TransmitFileChunkRequest, TransmitFileChunkResponse,
+    DeleteFileChunkRequest, DeleteFileChunkResponse, FailedFileChunk, GetFileChunkRequest,
+    GetFileChunkResponse, PutFileChunkRequest, PutFileChunkResponse, RollbackFileChunkRequest,
+    RollbackFileChunkResponse, TransmitFileChunkRequest, TransmitFileChunkResponse,
 };
 use std::path::PathBuf;
 use tokio::fs;
@@ -156,23 +157,84 @@ impl StorageServer for StorageService {
         }))
     }
 
-    async fn transmit_file_chunk_between_storage_server(
-        &self,
-        _request: Request<TransmitFileChunkRequest>,
-    ) -> Result<Response<TransmitFileChunkResponse>, Status> {
-        println!("transmit_file_chunk_between_storage_server not implemented");
-        Ok(Response::new(TransmitFileChunkResponse {
-            status: CommonStatus::Ok as i32,
-        }))
-    }
-
     async fn transmit_file_chunk(
         &self,
-        _request: Request<TransmitFileChunkRequest>,
+        request: Request<TransmitFileChunkRequest>,
     ) -> Result<Response<TransmitFileChunkResponse>, Status> {
-        println!("transmit_file_chunk not implemented");
+        let request = request.into_inner();
+        let mut failed_chunks: Vec<FailedFileChunk> = Vec::new();
+
+        for target in request.targets {
+            let chunk_path = self.get_chunk_path(&target.file_name, target.chunk_index);
+
+            // Try to read the chunk
+            let data = match fs::read(&chunk_path).await {
+                Ok(data) => data,
+                Err(e) => {
+                    println!("Failed to read chunk at {:?}: {}", chunk_path, e);
+                    failed_chunks.push(FailedFileChunk {
+                        file_name: target.file_name.clone(),
+                        chunk_index: target.chunk_index,
+                    });
+                    continue;
+                }
+            };
+
+            // Create the chunk object
+            let data_size = data.len();
+            let chunk = proto::common::FileChunk {
+                file_name: target.file_name.clone(),
+                chunk_index: target.chunk_index,
+                data,
+                size: data_size as u64,
+            };
+
+            // Create client and attempt to send chunk
+            let target_addr = format!(
+                "http://{}:{}",
+                target.target_server_ip, target.target_server_port
+            );
+            match StorageServerClient::connect(target_addr).await {
+                Ok(mut client) => {
+                    let put_request = Request::new(PutFileChunkRequest { chunk: Some(chunk) });
+
+                    match client.put_file_chunk(put_request).await {
+                        Ok(response) => {
+                            if response.into_inner().status != CommonStatus::Ok as i32 {
+                                println!("Failed to put chunk on target server");
+                                failed_chunks.push(FailedFileChunk {
+                                    file_name: target.file_name,
+                                    chunk_index: target.chunk_index,
+                                });
+                            }
+                        }
+                        Err(e) => {
+                            println!("Error putting chunk on target server: {}", e);
+                            failed_chunks.push(FailedFileChunk {
+                                file_name: target.file_name,
+                                chunk_index: target.chunk_index,
+                            });
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("Failed to connect to target server: {}", e);
+                    failed_chunks.push(FailedFileChunk {
+                        file_name: target.file_name,
+                        chunk_index: target.chunk_index,
+                    });
+                }
+            }
+        }
+
+        // Return response with any failed chunks
         Ok(Response::new(TransmitFileChunkResponse {
-            status: CommonStatus::Ok as i32,
+            status: if failed_chunks.is_empty() {
+                CommonStatus::Ok as i32
+            } else {
+                CommonStatus::Error as i32
+            },
+            failed_chunks,
         }))
     }
 }

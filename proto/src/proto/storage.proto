@@ -10,9 +10,6 @@ service StorageServer {
     rpc RollbackFileChunk (RollbackFileChunkRequest) returns (RollbackFileChunkResponse);
     rpc GetFileChunk (GetFileChunkRequest) returns (GetFileChunkResponse);
 
-    // Storage Server to Storage Server
-    rpc TransmitFileChunkBetweenStorageServer (TransmitFileChunkRequest) returns (TransmitFileChunkResponse);
-
     // Metadata Server to Storage Server
     rpc TransmitFileChunk (TransmitFileChunkRequest) returns (TransmitFileChunkResponse);
 }
@@ -53,13 +50,23 @@ message GetFileChunkResponse {
     common.FileChunk chunk = 2;
 }
 
-message TransmitFileChunkRequest {
+message FileChunkTarget {
     string file_name = 1;
     uint32 chunk_index = 2;
-    string target_server = 3;
-    optional common.FileChunk chunk = 4;
+    string target_server_ip = 3;
+    uint32 target_server_port = 4;
+}
+
+message TransmitFileChunkRequest {
+    repeated FileChunkTarget targets = 1;
+}
+
+message FailedFileChunk {
+    string file_name = 1;
+    uint32 chunk_index = 2;
 }
 
 message TransmitFileChunkResponse {
     common.Status status = 1;
+    repeated FailedFileChunk failed_chunks = 2;
 }
