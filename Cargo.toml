@@ -5,6 +5,7 @@ members = [
     "metadata-server",
     "storage-server",
     "common",
-    "test-client"
+    "test-client",
+    "test-metadata-server"
 ]
 resolver = "2"
