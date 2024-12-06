@@ -11,6 +11,8 @@ enum FileOperation {
 
 service MetadataServer {
     // Client to Metadata Server
+    rpc PutMetadata (PutMetadataRequest) returns (PutMetadataResponse);
+
     rpc RequestFileMetadata (RequestFileMetadataRequest) returns (RequestFileMetadataResponse);
     rpc CommitPut (CommitPutRequest) returns (CommitPutResponse);
     rpc RollbackPut (RollbackPutRequest) returns (RollbackPutResponse);
@@ -18,6 +20,13 @@ service MetadataServer {
 
     // Storage Server to Metadata Server
     rpc AddServer (AddServerRequest) returns (AddServerResponse);
+}
+message PutMetadataRequest {
+    common.FileMetadata metadata = 1;
+}
+
+message PutMetadataResponse {
+    bool success = 1;
 }
 
 message RequestFileMetadataRequest {
