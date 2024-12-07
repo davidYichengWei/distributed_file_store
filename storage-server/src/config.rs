@@ -1,16 +1,27 @@
 use clap::Parser;
+use serde::Deserialize;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Deserialize)]
 pub struct ServerConfig {
-    #[arg(long, default_value = "127.0.0.1")]
-    pub host: String,
-
-    #[arg(long, default_value = "50051")]
+    #[clap(long, default_value = "127.0.0.1")]
+    pub bind_address: String,
+    #[clap(long, default_value = "50051")]
     pub port: u16,
+    #[clap(long, default_value = "127.0.0.1")]
+    pub metadata_server_address: String,
+    #[clap(long, default_value = "50050")]
+    pub metadata_server_port: u16,
 }
 
 impl ServerConfig {
     pub fn addr(&self) -> String {
-        format!("{}:{}", self.host, self.port)
+        format!("{}:{}", self.bind_address, self.port)
+    }
+
+    pub fn from_file(path: &str) -> Result<Self, config::ConfigError> {
+        let settings = config::Config::builder()
+            .add_source(config::File::with_name(path))
+            .build()?;
+        settings.try_deserialize()
     }
 }

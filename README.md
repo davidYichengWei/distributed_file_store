@@ -11,8 +11,8 @@ cargo build
 
 Build individual components:
 ```
-cargo build -p metadata_server
-cargo build -p storage_server
+cargo build -p metadata-server
+cargo build -p storage-server
 cargo build -p client
 ```
 
@@ -21,6 +21,6 @@ cargo build -p client
 Run individual components:
 ```
 cargo run --bin metadata-server
-cargo run --bin storage-server
+cargo run --bin storage-server -- [--bind_address <server_ip>] [--port <server_port>] [--metadata_server_address <metadata_server_ip>] [--metadata_server_port <metadata_server_port>]
 cargo run --bin client
 ```
