@@ -20,6 +20,7 @@ service MetadataServer {
 
     // Storage Server to Metadata Server
     rpc AddServer (AddServerRequest) returns (AddServerResponse);
+    rpc DoServerHeartbeat (ServerHeartbeatRequest) returns (ServerHeartbeatResponse);
 }
 message PutMetadataRequest {
     common.FileMetadata metadata = 1;
@@ -67,5 +68,14 @@ message AddServerRequest {
 }
 
 message AddServerResponse {
+    common.Status status = 1;
+}
+
+message ServerHeartbeatRequest {
+    string server_address = 1;
+    uint32 server_port = 2;
+}
+
+message ServerHeartbeatResponse {
     common.Status status = 1;
 }

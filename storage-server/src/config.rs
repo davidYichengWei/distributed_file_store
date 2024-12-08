@@ -1,7 +1,7 @@
 use clap::Parser;
 use serde::Deserialize;
 
-#[derive(Parser, Debug, Deserialize)]
+#[derive(Parser, Debug, Deserialize, Clone)]
 pub struct ServerConfig {
     #[clap(long, default_value = "127.0.0.1")]
     pub bind_address: String,
@@ -11,6 +11,8 @@ pub struct ServerConfig {
     pub metadata_server_address: String,
     #[clap(long, default_value = "50050")]
     pub metadata_server_port: u16,
+    #[clap(long, default_value = "1")]
+    pub heartbeat_interval_secs: u64,
 }
 
 impl ServerConfig {

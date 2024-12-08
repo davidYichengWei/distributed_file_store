@@ -1,12 +1,12 @@
+use proto::common::{FileMetadata, Status as CommonStatus};
 use proto::metadata::metadata_server_server::MetadataServer;
 use proto::metadata::{
-    PutMetadataRequest, PutMetadataResponse, RequestFileMetadataRequest, RequestFileMetadataResponse,
-    CommitPutRequest, CommitPutResponse, RollbackPutRequest, RollbackPutResponse,
-    DecrementRequestRequest, DecrementRequestResponse, AddServerRequest, AddServerResponse
+    AddServerRequest, AddServerResponse, CommitPutRequest, CommitPutResponse,
+    DecrementRequestRequest, DecrementRequestResponse, PutMetadataRequest, PutMetadataResponse,
+    RequestFileMetadataRequest, RequestFileMetadataResponse, RollbackPutRequest,
+    RollbackPutResponse, ServerHeartbeatRequest, ServerHeartbeatResponse,
 };
-use proto::common::{FileMetadata, Status as CommonStatus};
 use tonic::{Request, Response, Status};
-
 
 #[derive(Debug)]
 pub struct MetadataService;
@@ -71,7 +71,9 @@ impl MetadataServer for MetadataService {
         // Here you would handle the commit request
         // For now, we just return a success response
 
-        Ok(tonic::Response::new(CommitPutResponse { status: CommonStatus::Ok as i32 }))
+        Ok(tonic::Response::new(CommitPutResponse {
+            status: CommonStatus::Ok as i32,
+        }))
     }
 
     async fn rollback_put(
@@ -83,7 +85,9 @@ impl MetadataServer for MetadataService {
         // Here you would handle the rollback request
         // For now, we just return a success response
 
-        Ok(tonic::Response::new(RollbackPutResponse { status: CommonStatus::Ok as i32 }))
+        Ok(tonic::Response::new(RollbackPutResponse {
+            status: CommonStatus::Ok as i32,
+        }))
     }
 
     async fn decrement_client_ongoing_request(
@@ -95,7 +99,9 @@ impl MetadataServer for MetadataService {
         // Here you would handle the decrement request
         // For now, we just return a success response
 
-        Ok(tonic::Response::new(DecrementRequestResponse { status: CommonStatus::Ok as i32 }))
+        Ok(tonic::Response::new(DecrementRequestResponse {
+            status: CommonStatus::Ok as i32,
+        }))
     }
 
     async fn add_server(
@@ -107,6 +113,24 @@ impl MetadataServer for MetadataService {
         // Here you would handle the add server request
         // For now, we just return a success response
 
-        Ok(tonic::Response::new(AddServerResponse { status: CommonStatus::Ok as i32 }))
+        Ok(tonic::Response::new(AddServerResponse {
+            status: CommonStatus::Ok as i32,
+        }))
+    }
+
+    // Dummy implementation for server heartbeat
+    async fn do_server_heartbeat(
+        &self,
+        request: Request<ServerHeartbeatRequest>,
+    ) -> Result<Response<ServerHeartbeatResponse>, Status> {
+        println!(
+            "Received heartbeat from server {}:{}",
+            request.get_ref().server_address,
+            request.get_ref().server_port
+        );
+
+        Ok(Response::new(ServerHeartbeatResponse {
+            status: CommonStatus::Ok as i32,
+        }))
     }
 }

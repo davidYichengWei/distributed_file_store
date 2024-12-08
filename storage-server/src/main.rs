@@ -1,10 +1,11 @@
 use clap::Parser;
 use proto::metadata::metadata_server_client::MetadataServerClient;
-use proto::metadata::AddServerRequest;
+use proto::metadata::{AddServerRequest, ServerHeartbeatRequest};
 use proto::storage::storage_server_server::StorageServerServer;
 use std::time::Duration;
 use storage_server::config::ServerConfig;
 use storage_server::service::StorageService;
+use tokio::time;
 use tonic::transport::Server;
 
 async fn register_with_metadata_server(
@@ -42,6 +43,42 @@ async fn register_with_metadata_server(
     }
 }
 
+async fn start_heartbeat(config: ServerConfig) {
+    let metadata_addr = format!(
+        "http://{}:{}",
+        config.metadata_server_address, config.metadata_server_port
+    );
+
+    let mut interval = time::interval(Duration::from_secs(config.heartbeat_interval_secs));
+
+    loop {
+        interval.tick().await;
+
+        match MetadataServerClient::connect(metadata_addr.clone()).await {
+            Ok(mut client) => {
+                let request = tonic::Request::new(ServerHeartbeatRequest {
+                    server_address: config.bind_address.clone(),
+                    server_port: config.port as u32,
+                });
+
+                match client.do_server_heartbeat(request).await {
+                    Ok(response) => {
+                        if response.into_inner().status != proto::common::Status::Ok as i32 {
+                            eprintln!("Metadata server rejected heartbeat");
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to send heartbeat: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to connect to metadata server for heartbeat: {}", e);
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command line arguments or config file
@@ -59,10 +96,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
+    println!("Successfully registered with metadata server");
+
+    // Start heartbeat in background
+    let heartbeat_config = config.clone(); // Clone config for the heartbeat task
+    tokio::spawn(async move {
+        start_heartbeat(heartbeat_config).await;
+    });
+
     // Initialize service
     let storage_service = StorageService::new(config.port).await?;
 
-    println!("Successfully registered with metadata server");
     println!("Storage Server listening on {}", addr);
 
     // Start server
