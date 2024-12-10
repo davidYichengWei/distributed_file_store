@@ -1,6 +1,11 @@
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
-use std::io;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
+    io,
+    hash::Hasher
+};
 use tonic::{Request, Response, Status};
 use proto::common::Status as CommonStatus;
 use proto::metadata::metadata_server_server::MetadataServer;
@@ -13,20 +18,97 @@ use proto::metadata::{
 
 #[derive(Debug, Default)]
 pub struct MetadataService {
-    metadata_store: Arc<Mutex<HashMap<String, String>>>,
+    hash_ring: Arc<Mutex<HashMap<String, usize>>>, // Consistent hash ring
+    heartbeats: Arc<Mutex<HashMap<String, usize>>>, // Heartbeat countdowns
 }
 
 impl MetadataService {
-    /// Creates a new instance of MetadataService
-    pub async fn new() -> Result<Self, io::Error> {
-        let metadata_store = Arc::new(Mutex::new(HashMap::new()));
+    pub async fn new() -> Result<Self, std::io::Error> {
 
-        Ok(Self { metadata_store })
+        let heartbeats = Arc::new(Mutex::new(HashMap::<String, usize>::new()));
+        Self::start_heartbeat_thread(Arc::clone(&heartbeats));
+
+        Ok(Self {
+            hash_ring: Arc::new(Mutex::new(HashMap::<String, usize>::new())),
+            heartbeats,
+        })
+    }
+    
+    /// Compute a consistent hash for the server based on address and port
+    fn compute_hash(server_address: &str, server_port: u32) -> usize {
+        let key = format!("{}:{}", server_address, server_port);
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&key, &mut hasher);
+        hasher.finish() as usize
+    }
+
+    fn start_heartbeat_thread(heartbeats: Arc<Mutex<HashMap<String, usize>>>) {
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+                let mut heartbeats = heartbeats.lock().unwrap();
+                let mut expired_servers = Vec::new();
+
+                // Decrement heartbeats and collect expired servers
+                for (key, countdown) in heartbeats.iter_mut() {
+                    if *countdown > 0 {
+                        *countdown -= 1;
+                    } else {
+                        println!("Server heartbeat expired: {}", key);
+                        expired_servers.push(key.clone());
+                    }
+                }
+
+                // Remove expired servers
+                for key in expired_servers {
+                    heartbeats.remove(&key);
+                }
+            }
+        });
     }
 }
 
 #[tonic::async_trait]
 impl MetadataServer for MetadataService {
+
+    async fn add_server(
+        &self,
+        request: Request<AddServerRequest>,
+    ) -> Result<Response<AddServerResponse>, Status> {
+        let AddServerRequest {
+            server_address,
+            server_port,
+        } = request.into_inner();
+
+        // Compute a consistent hash for the server
+        let server_key = format!("{}:{}", server_address, server_port);
+        let server_hash = Self::compute_hash(&server_address, server_port);
+
+        // Add to the hash ring
+        {
+            let mut hash_ring = self.hash_ring.lock().unwrap();
+            if hash_ring.contains_key(&server_key) {
+                println!("Server already exists in the hash ring: {}", server_key);
+                return Ok(Response::new(AddServerResponse {
+                    status: CommonStatus::Ok as i32,
+                }));
+            }
+            hash_ring.insert(server_key.clone(), server_hash);
+            println!("Added server to hash ring: {} -> {}", server_key, server_hash);
+        }
+
+        // Add to heartbeats with initial value
+        {
+            let mut heartbeats = self.heartbeats.lock().unwrap();
+            heartbeats.insert(server_key.clone(), 5); // 5 seconds countdown
+        }
+
+        Ok(Response::new(AddServerResponse {
+            status: CommonStatus::Ok as i32,
+        }))
+    }
+
     async fn request_file_metadata(
         &self,
         _request: Request<RequestFileMetadataRequest>,
@@ -68,16 +150,6 @@ impl MetadataServer for MetadataService {
         }))
     }
 
-    async fn add_server(
-        &self,
-        _request: Request<AddServerRequest>,
-    ) -> Result<Response<AddServerResponse>, Status> {
-        println!("add_server called");
-        Ok(Response::new(AddServerResponse {
-            status: CommonStatus::Ok as i32,
-        }))
-    }
-
     async fn put_metadata(&self, _request: Request<PutMetadataRequest>) ->
     Result<Response<PutMetadataResponse>, Status> {
         Ok(Response::new(PutMetadataResponse {
@@ -87,9 +159,29 @@ impl MetadataServer for MetadataService {
 
     async fn do_server_heartbeat(
         &self,
-        _request: Request<ServerHeartbeatRequest>,
+        request: Request<ServerHeartbeatRequest>,
     ) -> Result<Response<ServerHeartbeatResponse>, Status> {
-        println!("do_server_heartbeat called");
+        let ServerHeartbeatRequest {
+            server_address,
+            server_port,
+        } = request.into_inner();
+
+        // Compute the server key
+        let server_key = format!("{}:{}", server_address, server_port);
+
+        // Update the heartbeat map
+        {
+            let mut heartbeats = self.heartbeats.lock().unwrap();
+            if heartbeats.contains_key(&server_key) {
+                heartbeats.insert(server_key.clone(), 5); // Reset heartbeat countdown
+                println!("Heartbeat refreshed for server: {}", server_key);
+            } else {
+                println!(
+                    "Warning: Received heartbeat from unknown server: {}. Ignoring.",
+                    server_key
+                );
+            }
+        }
 
         Ok(Response::new(ServerHeartbeatResponse {
             status: CommonStatus::Ok as i32,
