@@ -7,7 +7,8 @@ use proto::metadata::metadata_server_server::MetadataServer;
 use proto::metadata::{
     RequestFileMetadataRequest, RequestFileMetadataResponse, CommitPutRequest, CommitPutResponse,
     RollbackPutRequest, RollbackPutResponse, DecrementRequestRequest, DecrementRequestResponse,
-    AddServerRequest, AddServerResponse,
+    AddServerRequest, AddServerResponse, PutMetadataRequest,PutMetadataResponse, 
+    ServerHeartbeatRequest, ServerHeartbeatResponse
 };
 
 #[derive(Debug, Default)]
@@ -73,6 +74,24 @@ impl MetadataServer for MetadataService {
     ) -> Result<Response<AddServerResponse>, Status> {
         println!("add_server called");
         Ok(Response::new(AddServerResponse {
+            status: CommonStatus::Ok as i32,
+        }))
+    }
+
+    async fn put_metadata(&self, _request: Request<PutMetadataRequest>) ->
+    Result<Response<PutMetadataResponse>, Status> {
+        Ok(Response::new(PutMetadataResponse {
+            success: true,
+        }))
+    }
+
+    async fn do_server_heartbeat(
+        &self,
+        _request: Request<ServerHeartbeatRequest>,
+    ) -> Result<Response<ServerHeartbeatResponse>, Status> {
+        println!("do_server_heartbeat called");
+
+        Ok(Response::new(ServerHeartbeatResponse {
             status: CommonStatus::Ok as i32,
         }))
     }

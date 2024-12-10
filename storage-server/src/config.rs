@@ -9,7 +9,7 @@ pub struct ServerConfig {
     pub port: u16,
     #[clap(long, default_value = "127.0.0.1")]
     pub metadata_server_address: String,
-    #[clap(long, default_value = "50050")]
+    #[clap(long, default_value = "50052")]
     pub metadata_server_port: u16,
     #[clap(long, default_value = "1")]
     pub heartbeat_interval_secs: u64,
