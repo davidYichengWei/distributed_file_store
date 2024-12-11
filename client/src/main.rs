@@ -27,7 +27,6 @@ enum Command {
     },
     Get {
         file_name: String,
-        chunk_index: u32,
     },
 }
 
@@ -186,48 +185,126 @@ async fn send_chunk_to_server(
     }
 }
 
-
-async fn get_file_chunk(
-    mut client: StorageServerClient<Channel>,
+async fn get_file(
+    mut metadata_client: MetadataServerClient<Channel>,
     file_name: String,
-    chunk_index: u32,
 ) -> Result<()> {
-    let request = tonic::Request::new(GetFileChunkRequest {
-        file_name,
-        chunk_index,
+    let metadata_request = Request::new(RequestFileMetadataRequest {
+        filename: file_name.clone(),
     });
 
-    let response = client.get_file_chunk(request).await?;
-    println!("Get response: {:?}", response);
+    let file_metadata = match metadata_client.request_file_metadata(metadata_request).await {
+        Ok(response) => {
+            let metadata = response.into_inner().metadata;
+            if let Some(metadata) = metadata {
+                metadata
+            } else {
+                println!("File does not exist.");
+                return Ok(());
+            }
+        }
+        Err(e) => {
+            println!("Failed to fetch metadata: {}", e);
+            return Ok(());
+        }
+    };
 
-    // If chunk was successfully retrieved, you might want to save it
-    if let Some(chunk) = response.into_inner().chunk {
-        let output_path = format!("retrieved_{}_{}", chunk.file_name, chunk.chunk_index);
-        fs::write(&output_path, chunk.data).await?;
-        println!("Saved retrieved chunk to {}", output_path);
+    println!("Retrieved metadata: {:?}", file_metadata);
+
+    // Step 2: Set up the output path
+    let output_path = format!("retrieved_files/{}", file_name);
+    let mut assembled_file = Vec::new();
+
+    // Step 3: Retrieve each chunk
+    for chunk_metadata in file_metadata.chunks {
+        // Connect to the primary server
+        let primary_server_uri = format!("http://{}:{}", chunk_metadata.server_address, chunk_metadata.server_port);
+        let mut client = StorageServerClient::connect(primary_server_uri).await?;
+
+        // Request the chunk
+        let request = tonic::Request::new(GetFileChunkRequest {
+            file_name: chunk_metadata.file_name.clone(),
+            chunk_index: chunk_metadata.chunk_index,
+        });
+
+        match client.get_file_chunk(request).await {
+            Ok(response) => {
+                if let Some(chunk) = response.into_inner().chunk {
+                    assembled_file.extend(chunk.data);
+                    println!(
+                        "Retrieved chunk {} from {}:{}",
+                        chunk.chunk_index, chunk_metadata.server_address, chunk_metadata.server_port
+                    );
+                } else {
+                    eprintln!("Chunk {} missing in response", chunk_metadata.chunk_index);
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "Failed to retrieve chunk {} from {}:{} - {}",
+                    chunk_metadata.chunk_index, chunk_metadata.server_address, chunk_metadata.server_port, e
+                );
+
+                // Retry on the replica server
+                let replica_server_uri = format!(
+                    "http://{}:{}",
+                    chunk_metadata.replica_server_address, chunk_metadata.replica_server_port
+                );
+                let mut replica_client = StorageServerClient::connect(replica_server_uri).await?;
+
+                let replica_request = tonic::Request::new(GetFileChunkRequest {
+                    file_name: chunk_metadata.file_name.clone(),
+                    chunk_index: chunk_metadata.chunk_index,
+                });
+
+                match replica_client.get_file_chunk(replica_request).await {
+                    Ok(replica_response) => {
+                        if let Some(chunk) = replica_response.into_inner().chunk {
+                            assembled_file.extend(chunk.data);
+                            println!(
+                                "Retrieved chunk {} from replica {}:{}",
+                                chunk.chunk_index, chunk_metadata.replica_server_address, chunk_metadata.replica_server_port
+                            );
+                        } else {
+                            eprintln!("Chunk {} missing in replica response", chunk_metadata.chunk_index);
+                        }
+                    }
+                    Err(replica_err) => {
+                        eprintln!(
+                            "Failed to retrieve chunk {} from replica {}:{} - {}",
+                            chunk_metadata.chunk_index, chunk_metadata.replica_server_address, chunk_metadata.replica_server_port, replica_err
+                        );
+                    }
+                }
+            }
+        }
     }
+
+    // Step 4: Write the assembled file
+    fs::create_dir_all("retrieved_files").await?; // Ensure the directory exists
+    fs::write(&output_path, assembled_file).await?;
+    println!("File assembled and saved to {}", output_path);
 
     Ok(())
 }
 
+
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Cli::parse();
-
+    let mut metadata_client = connect_to_metadata_server().await?;
     match args.command {
         Command::Put {
             file_name,
             file_path,
         } => {
-            let mut metadata_client = connect_to_metadata_server().await?;
             put_file_chunk(metadata_client, file_name, file_path).await?;
         }
         Command::Get {
             file_name,
-            chunk_index,
         } => {
-            let mut client = connect_to_server().await?;
-            get_file_chunk(client, file_name, chunk_index).await?;
+            get_file(metadata_client, file_name).await?;
         }
     }
 
