@@ -40,19 +40,23 @@ pub struct MetadataService {
 
 impl MetadataService {
     pub async fn new() -> Result<Self, std::io::Error> {
-
         let hash_ring = Arc::new(Mutex::new(HashMap::<String, usize>::new()));
         let heartbeats = Arc::new(Mutex::new(HashMap::<String, usize>::new()));
         let metadata_store = Arc::new(Mutex::new(HashMap::<String, FileMetadata>::new()));
-
-        Self::start_heartbeat_thread(Arc::clone(&heartbeats));
-
+    
+        Self::start_heartbeat_thread(
+            Arc::clone(&heartbeats),
+            Arc::clone(&hash_ring),
+            Arc::clone(&metadata_store),
+        );
+    
         Ok(Self {
             hash_ring,
             heartbeats,
             metadata_store,
         })
     }
+    
     
     /// Compute a consistent hash for the server based on address and port
     fn compute_hash(server_address: &str, server_port: u32) -> usize {
@@ -62,31 +66,55 @@ impl MetadataService {
         hasher.finish() as usize
     }
 
-    fn start_heartbeat_thread(heartbeats: Arc<Mutex<HashMap<String, usize>>>) {
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-                let mut heartbeats = heartbeats.lock().await;
-                let mut expired_servers = Vec::new();
-
-                // Decrement heartbeats and collect expired servers
-                for (key, countdown) in heartbeats.iter_mut() {
-                    if *countdown > 0 {
-                        *countdown -= 1;
-                    } else {
-                        println!("Server heartbeat expired: {}", key);
-                        expired_servers.push(key.clone());
+    fn start_heartbeat_thread(
+        heartbeats: Arc<Mutex<HashMap<String, usize>>>,
+        hash_ring: Arc<Mutex<HashMap<String, usize>>>,
+        metadata_store: Arc<Mutex<HashMap<String, FileMetadata>>>,
+    ) {
+        tokio::spawn({
+            let heartbeats = Arc::clone(&heartbeats);
+            let hash_ring = Arc::clone(&hash_ring);
+            let metadata_store = Arc::clone(&metadata_store);
+    
+            async move {
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    
+                    let mut heartbeats = heartbeats.lock().await;
+                    let mut expired_servers = Vec::new();
+    
+                    // Decrement heartbeats and collect expired servers
+                    {
+                        for (key, countdown) in heartbeats.iter_mut() {
+                            if *countdown > 0 {
+                                *countdown -= 1;
+                            } else {
+                                println!("Server heartbeat expired: {}", key);
+                                expired_servers.push(key.clone());
+                            }
+                        }
                     }
-                }
-
-                // Remove expired servers
-                for key in expired_servers {
-                    heartbeats.remove(&key);
+    
+                    // Remove expired servers from heartbeats
+                    for key in expired_servers {
+                        heartbeats.remove(&key);
+                        // Handle missing heartbeat asynchronously
+                        let hash_ring = Arc::clone(&hash_ring);
+                        let metadata_store = Arc::clone(&metadata_store);
+                        let key = key.clone();
+        
+                        tokio::spawn(async move {
+                            if let Err(e) = handle_missing_heartbeat(metadata_store, hash_ring, key).await {
+                                eprintln!("Error during metadata rebalance: {}", e);
+                            }
+                        });
+                    }
                 }
             }
         });
     }
+    
+    
 }
 
 #[tonic::async_trait]
@@ -452,6 +480,157 @@ async fn rebalance_chunks(
 
             // Transmit chunk to the new replica if needed
             if current_replica != new_replica {
+                let target = FileChunkTarget {
+                    file_name: chunk.file_name.clone(),
+                    chunk_index: chunk.chunk_index,
+                    target_server_ip: new_replica.split(':').next().unwrap().to_string(),
+                    target_server_port: new_replica.split(':').nth(1).unwrap().parse().unwrap(),
+                };
+
+                if let Err(e) = transmit_chunk_to_target(&current_server, vec![target]).await {
+                    println!("Error transmitting chunk to new replica: {}", e);
+                }
+            }
+
+            // Update the metadata_store to reflect the new server assignments
+            {
+                let mut store = metadata_store.lock().await;
+                if let Some(file_metadata) = store.get_mut(file_name) {
+                    if let Some(chunk_mut) = file_metadata
+                        .chunks
+                        .iter_mut()
+                        .find(|c| c.chunk_index == chunk.chunk_index)
+                    {
+                        let (new_primary_ip, new_primary_port) = parse_server(&new_primary);
+                        chunk_mut.server_address = new_primary_ip;
+                        chunk_mut.server_port = new_primary_port;
+
+                        let (new_replica_ip, new_replica_port) = parse_server(&new_replica);
+                        chunk_mut.replica_server_address = new_replica_ip;
+                        chunk_mut.replica_server_port = new_replica_port;
+                    }
+                }
+            }
+        }
+    }
+
+    {
+        for (server, _) in hash_ring.iter() {
+            println!("Server: {}!", server);
+            let store = metadata_store.lock().await;
+            for (_, file_metadata) in original_metadata_store.iter() {
+                // Iterate over all chunks in each file
+                for chunk in &file_metadata.chunks {
+                    // Determine the current server from the chunk
+                    let current_server = format!("{}:{}", chunk.server_address, chunk.server_port);
+                    let replica_server = format!(
+                        "{}:{}",
+                        chunk.replica_server_address, chunk.replica_server_port
+                    );
+        
+        
+                    // Check if the replica server is still responsible
+                    if !is_chunk_responsible_or_replica_in_updated_store(chunk, &store, &server) {
+                        if let Err(e) = delete_chunk_from_server(&server, chunk.clone()).await {
+                            println!(
+                                "Error deleting chunk from server {}: {}",
+                                replica_server, e
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    
+
+    {
+        let store = metadata_store.lock().await;
+        println!("Metadata store after rebalancing:");
+        for (file_name, file_metadata) in store.iter() {
+            println!("File: {}", file_name);
+            for chunk in &file_metadata.chunks {
+                println!(
+                    "  Chunk {} -> Primary: {}:{}, Replica: {}:{}",
+                    chunk.chunk_index,
+                    chunk.server_address,
+                    chunk.server_port,
+                    chunk.replica_server_address,
+                    chunk.replica_server_port
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+
+async fn handle_missing_heartbeat(
+    metadata_store: Arc<Mutex<HashMap<String, FileMetadata>>>,
+    hash_ring: Arc<Mutex<HashMap<String, usize>>>,
+    expired_server: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let original_metadata_store = {
+        let store = metadata_store.lock().await;
+        store.clone()
+    };
+
+    let mut hash_ring = hash_ring.lock().await;
+    hash_ring.remove(&expired_server);
+
+    for (file_name, file_metadata) in original_metadata_store.iter() {
+        for chunk in &file_metadata.chunks {
+            let new_primary = get_responsible_server(&hash_ring, chunk.chunk_index);
+            let new_replica = get_next_server(&hash_ring, &new_primary);
+
+            let current_server = format!("{}:{}", chunk.server_address, chunk.server_port);
+            let current_replica = format!(
+                "{}:{}",
+                chunk.replica_server_address, chunk.replica_server_port
+            );
+
+            if expired_server == current_server && current_replica != new_primary {
+                let target = FileChunkTarget {
+                    file_name: chunk.file_name.clone(),
+                    chunk_index: chunk.chunk_index,
+                    target_server_ip: new_primary.split(':').next().unwrap().to_string(),
+                    target_server_port: new_primary.split(':').nth(1).unwrap().parse().unwrap(),
+                };
+
+                if let Err(e) = transmit_chunk_to_target(&current_replica, vec![target]).await {
+                    println!("Error transmitting chunk to new primary: {}", e);
+                }
+            }
+            else if current_server != new_primary {
+                let target = FileChunkTarget {
+                    file_name: chunk.file_name.clone(),
+                    chunk_index: chunk.chunk_index,
+                    target_server_ip: new_primary.split(':').next().unwrap().to_string(),
+                    target_server_port: new_primary.split(':').nth(1).unwrap().parse().unwrap(),
+                };
+
+                if let Err(e) = transmit_chunk_to_target(&current_server, vec![target]).await {
+                    println!("Error transmitting chunk to new primary: {}", e);
+                }
+            }
+
+            // Transmit chunk to the new replica if needed
+
+            if expired_server == current_server && current_replica != new_replica {
+                let target = FileChunkTarget {
+                    file_name: chunk.file_name.clone(),
+                    chunk_index: chunk.chunk_index,
+                    target_server_ip: new_replica.split(':').next().unwrap().to_string(),
+                    target_server_port: new_replica.split(':').nth(1).unwrap().parse().unwrap(),
+                };
+
+                if let Err(e) = transmit_chunk_to_target(&current_replica, vec![target]).await {
+                    println!("Error transmitting chunk to new replica: {}", e);
+                }
+            }
+            else if current_replica != new_replica {
                 let target = FileChunkTarget {
                     file_name: chunk.file_name.clone(),
                     chunk_index: chunk.chunk_index,
