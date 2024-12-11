@@ -15,9 +15,18 @@ use proto::metadata::{
     AddServerRequest, AddServerResponse, PutMetadataRequest,PutMetadataResponse, 
     ServerHeartbeatRequest, ServerHeartbeatResponse
 };
+use proto::{
+    FileMetadata,
+    ChunkMetadata
+};
+
+// use metadata_server::config::HEART_BEAT_EXPIRE_SECS;
+static HEART_BEAT_EXPIRE_SECS: usize = 5;
+static CHUNK_SIZE: usize = 10 * 1024;
 
 #[derive(Debug, Default)]
 pub struct MetadataService {
+    metadata_store: Arc<Mutex<HashMap<String, FileMetadata>>>, 
     hash_ring: Arc<Mutex<HashMap<String, usize>>>, // Consistent hash ring
     heartbeats: Arc<Mutex<HashMap<String, usize>>>, // Heartbeat countdowns
 }
@@ -25,12 +34,16 @@ pub struct MetadataService {
 impl MetadataService {
     pub async fn new() -> Result<Self, std::io::Error> {
 
+        let hash_ring = Arc::new(Mutex::new(HashMap::<String, usize>::new()));
         let heartbeats = Arc::new(Mutex::new(HashMap::<String, usize>::new()));
+        let metadata_store = Arc::new(Mutex::new(HashMap::<String, FileMetadata>::new()));
+
         Self::start_heartbeat_thread(Arc::clone(&heartbeats));
 
         Ok(Self {
-            hash_ring: Arc::new(Mutex::new(HashMap::<String, usize>::new())),
+            hash_ring,
             heartbeats,
+            metadata_store,
         })
     }
     
@@ -101,7 +114,7 @@ impl MetadataServer for MetadataService {
         // Add to heartbeats with initial value
         {
             let mut heartbeats = self.heartbeats.lock().unwrap();
-            heartbeats.insert(server_key.clone(), 5); // 5 seconds countdown
+            heartbeats.insert(server_key.clone(), HEART_BEAT_EXPIRE_SECS); // 5 seconds countdown
         }
 
         Ok(Response::new(AddServerResponse {
@@ -111,13 +124,33 @@ impl MetadataServer for MetadataService {
 
     async fn request_file_metadata(
         &self,
-        _request: Request<RequestFileMetadataRequest>,
+        request: Request<RequestFileMetadataRequest>,
     ) -> Result<Response<RequestFileMetadataResponse>, Status> {
-        println!("request_file_metadata called");
-        Ok(Response::new(RequestFileMetadataResponse {
-            status: CommonStatus::Ok as i32,
-            metadata: None,
-        }))
+        // Extract file name from the request
+        let file_name = request.into_inner().filename;
+
+        // Check if the file metadata exists in the store
+        let metadata = {
+            let metadata_store = self.metadata_store.lock().unwrap();
+            metadata_store.get(&file_name).cloned() // Clone to release lock quickly
+        };
+
+        match metadata {
+            Some(file_metadata) => {
+                println!("Metadata found for file: {}", file_name);
+                Ok(Response::new(RequestFileMetadataResponse {
+                    status: CommonStatus::Ok as i32,
+                    metadata: Some(file_metadata),
+                }))
+            }
+            None => {
+                println!("Metadata not found for file: {}", file_name);
+                Ok(Response::new(RequestFileMetadataResponse {
+                    status: CommonStatus::Error as i32,
+                    metadata: None,
+                }))
+            }
+        }
     }
 
     async fn commit_put(
@@ -150,12 +183,72 @@ impl MetadataServer for MetadataService {
         }))
     }
 
-    async fn put_metadata(&self, _request: Request<PutMetadataRequest>) ->
-    Result<Response<PutMetadataResponse>, Status> {
+    async fn put_metadata(
+        &self,
+        request: Request<PutMetadataRequest>,
+    ) -> Result<Response<PutMetadataResponse>, Status> {
+        let metadata = match request.into_inner().metadata {
+            Some(metadata) => metadata,
+            None => return Err(Status::invalid_argument("Metadata is missing")),
+        };
+    
+        let file_name = metadata.file_name.clone();
+        let total_size = metadata.total_size;
+    
+        if total_size == 0 {
+            return Err(Status::invalid_argument("Total size cannot be zero."));
+        }
+    
+        let num_chunks = (total_size as usize + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    
+        // Acquire hash ring and ensure servers are available
+        let servers = {
+            let hash_ring = self.hash_ring.lock().unwrap();
+            let servers: Vec<_> = hash_ring.keys().cloned().collect();
+            if servers.is_empty() {
+                return Err(Status::failed_precondition("No servers available in the hash ring."));
+            }
+            servers
+        };
+    
+        // Generate chunk metadata
+        let chunks: Vec<ChunkMetadata> = (0..num_chunks as u32)
+            .map(|chunk_index| {
+                // Find primary and replica servers
+                let primary_server = &servers[chunk_index as usize % servers.len()];
+                let replica_server = &servers[(chunk_index as usize + 1) % servers.len()];
+    
+                let (primary_address, primary_port) = parse_server(primary_server);
+                let (replica_address, replica_port) = parse_server(replica_server);
+    
+                ChunkMetadata {
+                    file_name: file_name.clone(),
+                    chunk_index,
+                    server_address: primary_address,
+                    server_port: primary_port,
+                    replica_server_address: replica_address,
+                    replica_server_port: replica_port,
+                }
+            })
+            .collect();
+    
+        // Create FileMetadata object
+        let file_metadata = FileMetadata {
+            file_name: file_name.clone(),
+            total_size,
+            chunks,
+        };
+    
+        // Store in metadata_store
+        {
+            let mut metadata_store = self.metadata_store.lock().unwrap();
+            metadata_store.insert(file_name.clone(), file_metadata.clone());
+        }
+    
         Ok(Response::new(PutMetadataResponse {
             success: true,
-        }))
-    }
+            metadata: Some(file_metadata),
+        }))    }
 
     async fn do_server_heartbeat(
         &self,
@@ -173,7 +266,7 @@ impl MetadataServer for MetadataService {
         {
             let mut heartbeats = self.heartbeats.lock().unwrap();
             if heartbeats.contains_key(&server_key) {
-                heartbeats.insert(server_key.clone(), 5); // Reset heartbeat countdown
+                heartbeats.insert(server_key.clone(), HEART_BEAT_EXPIRE_SECS); // Reset heartbeat countdown
                 println!("Heartbeat refreshed for server: {}", server_key);
             } else {
                 println!(
@@ -187,4 +280,12 @@ impl MetadataServer for MetadataService {
             status: CommonStatus::Ok as i32,
         }))
     }
+}
+
+
+fn parse_server(server: &str) -> (String, u32) {
+    let parts: Vec<&str> = server.split(':').collect();
+    let address = parts[0].to_string();
+    let port = parts[1].parse().expect("Invalid server port format");
+    (address, port)
 }

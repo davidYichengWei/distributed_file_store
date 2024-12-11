@@ -28,7 +28,7 @@ impl MetadataServer for MetadataService {
         // Here you would handle the request and store the metadata
         // For now, we just return a success response
 
-        Ok(tonic::Response::new(PutMetadataResponse { success: true }))
+        Ok(tonic::Response::new(PutMetadataResponse { success: true, metadata: None }))
     }
 
     async fn request_file_metadata(
@@ -40,12 +40,12 @@ impl MetadataServer for MetadataService {
         let request = request.into_inner();
 
         // Process the operation and filename fields
-        match request.operation {
-            0 => println!("Operation: GET"),
-            1 => println!("Operation: PUT"),
-            2 => println!("Operation: DELETE"),
-            _ => return Err(Status::invalid_argument("Invalid operation")),
-        }
+        // match request.operation {
+        //     0 => println!("Operation: GET"),
+        //     1 => println!("Operation: PUT"),
+        //     2 => println!("Operation: DELETE"),
+        //     _ => return Err(Status::invalid_argument("Invalid operation")),
+        // }
 
         let filename = request.filename;
 

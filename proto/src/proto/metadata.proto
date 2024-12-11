@@ -28,11 +28,11 @@ message PutMetadataRequest {
 
 message PutMetadataResponse {
     bool success = 1;
+    common.FileMetadata metadata = 2;
 }
 
 message RequestFileMetadataRequest {
-    FileOperation operation = 1;
-    string filename = 2;
+    string filename = 1;
 }
 
 message RequestFileMetadataResponse {
