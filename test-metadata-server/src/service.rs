@@ -1,5 +1,7 @@
 use proto::common::{FileMetadata, Status as CommonStatus};
 use proto::metadata::metadata_server_server::MetadataServer;
+use proto::{ CommitDeleteRequest, CommitDeleteResponse, RollbackDeleteRequest, RollbackDeleteResponse};
+
 use proto::metadata::{
     AddServerRequest, AddServerResponse, CommitPutRequest, CommitPutResponse,
     DecrementRequestRequest, DecrementRequestResponse, PutMetadataRequest, PutMetadataResponse,
@@ -86,6 +88,25 @@ impl MetadataServer for MetadataService {
         // For now, we just return a success response
 
         Ok(tonic::Response::new(RollbackPutResponse {
+            status: CommonStatus::Ok as i32,
+        }))
+    }
+    async fn commit_delete(
+        &self,
+        _request: Request<CommitDeleteRequest>,
+    ) -> Result<Response<CommitDeleteResponse>, Status> {
+        println!("commit_delete called");
+        Ok(Response::new(CommitDeleteResponse {
+            status: CommonStatus::Ok as i32,
+        }))
+    }
+
+    async fn rollback_delete(
+        &self,
+        _request: Request<RollbackDeleteRequest>,
+    ) -> Result<Response<RollbackDeleteResponse>, Status> {
+        println!("rollback_delete called");
+        Ok(Response::new(RollbackDeleteResponse {
             status: CommonStatus::Ok as i32,
         }))
     }

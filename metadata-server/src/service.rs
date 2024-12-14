@@ -8,13 +8,13 @@ use std::{
 };
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
-use proto::common::Status as CommonStatus;
+use proto::{common::Status as CommonStatus};
 use proto::metadata::metadata_server_server::MetadataServer;
 use proto::metadata::{
     RequestFileMetadataRequest, RequestFileMetadataResponse, CommitPutRequest, CommitPutResponse,
     RollbackPutRequest, RollbackPutResponse, DecrementRequestRequest, DecrementRequestResponse,
     AddServerRequest, AddServerResponse, PutMetadataRequest,PutMetadataResponse, 
-    ServerHeartbeatRequest, ServerHeartbeatResponse
+    ServerHeartbeatRequest, ServerHeartbeatResponse, CommitDeleteRequest, CommitDeleteResponse, RollbackDeleteRequest, RollbackDeleteResponse
 };
 use proto::{
     FileMetadata,
@@ -91,7 +91,6 @@ impl MetadataService {
 
 #[tonic::async_trait]
 impl MetadataServer for MetadataService {
-
     async fn add_server(
         &self,
         request: Request<AddServerRequest>,
@@ -190,6 +189,25 @@ impl MetadataServer for MetadataService {
         }))
     }
 
+    async fn commit_delete(
+        &self,
+        _request: Request<CommitDeleteRequest>,
+    ) -> Result<Response<CommitDeleteResponse>, Status> {
+        println!("commit_delete called");
+        Ok(Response::new(CommitDeleteResponse {
+            status: CommonStatus::Ok as i32,
+        }))
+    }
+
+    async fn rollback_delete(
+        &self,
+        _request: Request<RollbackDeleteRequest>,
+    ) -> Result<Response<RollbackDeleteResponse>, Status> {
+        println!("rollback_delete called");
+        Ok(Response::new(RollbackDeleteResponse {
+            status: CommonStatus::Ok as i32,
+        }))
+    }
     async fn decrement_client_ongoing_request(
         &self,
         _request: Request<DecrementRequestRequest>,
