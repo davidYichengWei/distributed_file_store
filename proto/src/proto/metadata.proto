@@ -12,16 +12,18 @@ enum FileOperation {
 service MetadataServer {
     // Client to Metadata Server
     rpc PutMetadata (PutMetadataRequest) returns (PutMetadataResponse);
-
     rpc RequestFileMetadata (RequestFileMetadataRequest) returns (RequestFileMetadataResponse);
     rpc CommitPut (CommitPutRequest) returns (CommitPutResponse);
     rpc RollbackPut (RollbackPutRequest) returns (RollbackPutResponse);
+    rpc CommitDelete (CommitDeleteRequest) returns (CommitDeleteResponse);
+    rpc RollbackDelete (RollbackDeleteRequest) returns (RollbackDeleteResponse);
     rpc DecrementClientOngoingRequest (DecrementRequestRequest) returns (DecrementRequestResponse);
 
     // Storage Server to Metadata Server
     rpc AddServer (AddServerRequest) returns (AddServerResponse);
     rpc DoServerHeartbeat (ServerHeartbeatRequest) returns (ServerHeartbeatResponse);
 }
+
 message PutMetadataRequest {
     common.FileMetadata metadata = 1;
 }
@@ -53,6 +55,22 @@ message RollbackPutRequest {
 }
 
 message RollbackPutResponse {
+    common.Status status = 1;
+}
+
+message CommitDeleteRequest {
+    string filename = 1;
+}
+
+message CommitDeleteResponse {
+    common.Status status = 1;
+}
+
+message RollbackDeleteRequest {
+    string filename = 1;
+}
+
+message RollbackDeleteResponse {
     common.Status status = 1;
 }
 

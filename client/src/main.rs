@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use proto::storage::storage_server_client::StorageServerClient;
 use proto::storage::{GetFileChunkRequest, PutFileChunkRequest, DeleteFileChunkRequest};
 use proto::metadata::metadata_server_client::MetadataServerClient;
-use proto::metadata::{PutMetadataRequest, CommitPutRequest, RollbackPutRequest, CommitDeleteRequest, RollbackDeleteRequest, DecrementRequestRequest};
+use proto::metadata::{PutMetadataRequest, CommitPutRequest, RollbackPutRequest, CommitDeleteRequest, RollbackDeleteRequest};
 use proto::common::{FileMetadata, FileChunk};
 use std::path::PathBuf;
 use tokio::fs;
@@ -177,7 +177,7 @@ async fn send_chunk_to_server(
                 Ok(false)
             }
         }
-        Err(e) => {
+        Err(_e) => {
             println!("Failed to connect to server {}:{}", server_address, server_port);
             Ok(true)
         }
@@ -409,7 +409,7 @@ async fn get_file(
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Cli::parse();
-    let mut metadata_client = connect_to_metadata_server().await?;
+    let metadata_client = connect_to_metadata_server().await?;
     match args.command {
         Command::Put {
             file_name,
