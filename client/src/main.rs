@@ -10,6 +10,8 @@ use tokio::fs;
 use tonic::transport::Channel;
 use tonic::Request;
 use proto::RequestFileMetadataRequest;
+use proto::metadata::{RegisterUserRequest, LoginUserRequest, LoginUserResponse};
+use keyring::Entry;
 
 static CHUNK_SIZE: usize = 10 * 1024;
 
@@ -31,9 +33,15 @@ enum Command {
     Delete {
         file_name: String,
     },
+    Register {
+        username: String,
+        password: String,
+    },
+    Login {
+        username: String,
+        password: String,
+    },
 }
-
-
 
 async fn connect_to_metadata_server() -> Result<MetadataServerClient<Channel>> {
     let addr = "http://127.0.0.1:50052";
@@ -404,7 +412,45 @@ async fn get_file(
     Ok(())
 }
 
+async fn register_user(
+    mut metadata_client: MetadataServerClient<Channel>,
+    username: String,
+    password: String,
+) -> Result<()> {
+    let request = Request::new(RegisterUserRequest { username, password });
+    let response = metadata_client.register_user(request).await?;
+    let message = response.into_inner().message;
+    println!("Register response: {}", message);
+    Ok(())
+}
 
+async fn login_user(
+    mut metadata_client: MetadataServerClient<Channel>,
+    username: String,
+    password: String,
+) -> Result<()> {
+    let request = Request::new(LoginUserRequest { username: username.clone(), password });
+    let response = metadata_client.login_user(request).await?;
+    let LoginUserResponse { status, message, token } = response.into_inner();
+    println!("Login response: {}", message);
+    if status == proto::common::Status::Ok as i32 {
+        match Entry::new("distributed_file_store", &username) {
+            Ok(entry) => {
+                if let Err(e) = entry.set_password(&token) {
+                    println!("Failed to save session token: {}", e);
+                } else {
+                    println!("Session token saved.");
+                }
+            }
+            Err(e) => {
+                println!("Failed to create keyring entry: {}", e);
+            }
+        }
+    } else {
+        println!("Login failed with status: {}", status);
+    }
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -426,6 +472,12 @@ async fn main() -> Result<()> {
             file_name,
         } => {
             get_file(metadata_client, file_name).await?;
+        }
+        Command::Register { username, password } => {
+            register_user(metadata_client, username, password).await?;
+        }
+        Command::Login { username, password } => {
+            login_user(metadata_client, username, password).await?;
         }
     }
 

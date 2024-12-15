@@ -10,6 +10,10 @@ enum FileOperation {
 }
 
 service MetadataServer {
+    // User Authentication
+    rpc RegisterUser (RegisterUserRequest) returns (RegisterUserResponse);
+    rpc LoginUser (LoginUserRequest) returns (LoginUserResponse);
+
     // Client to Metadata Server
     rpc PutMetadata (PutMetadataRequest) returns (PutMetadataResponse);
     rpc RequestFileMetadata (RequestFileMetadataRequest) returns (RequestFileMetadataResponse);
@@ -22,6 +26,28 @@ service MetadataServer {
     // Storage Server to Metadata Server
     rpc AddServer (AddServerRequest) returns (AddServerResponse);
     rpc DoServerHeartbeat (ServerHeartbeatRequest) returns (ServerHeartbeatResponse);
+}
+
+message RegisterUserRequest {
+    string username = 1; // Desired username
+    string password = 2; // Desired password
+}
+
+message RegisterUserResponse {
+    common.Status status = 1; // OK or ERROR
+    string message = 2;       // Error message or success confirmation
+}
+
+// Login an existing user
+message LoginUserRequest {
+    string username = 1; // Username
+    string password = 2; // Password
+}
+
+message LoginUserResponse {
+    common.Status status = 1; // OK or ERROR
+    string message = 2;       // Error message or success confirmation
+    string token = 3;         // Session token if login is successful
 }
 
 message PutMetadataRequest {

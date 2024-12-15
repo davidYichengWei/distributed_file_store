@@ -8,6 +8,7 @@ name = "client"
 path = "src/main.rs"
 
 [dependencies]
+keyring = "2.0" # Secure credential storage
 proto = { path = "../proto" }
 common = { path = "../common" }
 tonic = "0.10"

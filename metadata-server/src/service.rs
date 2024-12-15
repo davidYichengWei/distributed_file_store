@@ -14,7 +14,8 @@ use proto::metadata::{
     RequestFileMetadataRequest, RequestFileMetadataResponse, CommitPutRequest, CommitPutResponse,
     RollbackPutRequest, RollbackPutResponse, DecrementRequestRequest, DecrementRequestResponse,
     AddServerRequest, AddServerResponse, PutMetadataRequest,PutMetadataResponse, 
-    ServerHeartbeatRequest, ServerHeartbeatResponse, CommitDeleteRequest, CommitDeleteResponse, RollbackDeleteRequest, RollbackDeleteResponse
+    ServerHeartbeatRequest, ServerHeartbeatResponse, CommitDeleteRequest, CommitDeleteResponse, RollbackDeleteRequest, RollbackDeleteResponse,
+    RegisterUserRequest, RegisterUserResponse, LoginUserRequest, LoginUserResponse
 };
 use proto::{
     FileMetadata,
@@ -26,6 +27,7 @@ use proto::{
 use proto::storage_server_client::{
     StorageServerClient,
 };
+use bcrypt::{hash, verify, DEFAULT_COST};
 
 // use metadata_server::config::HEART_BEAT_EXPIRE_SECS;
 static HEART_BEAT_EXPIRE_SECS: usize = 5;
@@ -36,6 +38,7 @@ pub struct MetadataService {
     metadata_store: Arc<Mutex<HashMap<String, FileMetadata>>>,
     hash_ring: Arc<Mutex<HashMap<String, usize>>>,
     heartbeats: Arc<Mutex<HashMap<String, usize>>>,
+    users: Arc<Mutex<HashMap<String, String>>>, // username -> hashed_password
 }
 
 impl MetadataService {
@@ -50,10 +53,13 @@ impl MetadataService {
             Arc::clone(&metadata_store),
         );
     
+        let users = Arc::new(Mutex::new(HashMap::<String, String>::new()));
+
         Ok(Self {
             hash_ring,
             heartbeats,
             metadata_store,
+            users,
         })
     }
     
@@ -163,8 +169,61 @@ impl MetadataServer for MetadataService {
         }))
     }
     
+    async fn register_user(
+        &self,
+        request: Request<RegisterUserRequest>,
+    ) -> Result<Response<RegisterUserResponse>, Status> {
+        let RegisterUserRequest { username, password } = request.into_inner();
 
-    
+        let hashed_password = hash(password, DEFAULT_COST).map_err(|e| {
+            println!("Failed to hash password: {}", e);
+            Status::internal("Failed to hash password")
+        })?;
+
+        let mut users = self.users.lock().await;
+        if users.contains_key(&username) {
+            return Ok(Response::new(RegisterUserResponse {
+                status: CommonStatus::Error as i32,
+                message: "Username already exists".to_string(),
+            }));
+        }
+
+        users.insert(username.clone(), hashed_password);
+        println!("User registered: {}", username);
+
+        Ok(Response::new(RegisterUserResponse {
+            status: CommonStatus::Ok as i32,
+            message: "User registered successfully".to_string(),
+        }))
+    }
+
+    async fn login_user(
+        &self,
+        request: Request<LoginUserRequest>,
+    ) -> Result<Response<LoginUserResponse>, Status> {
+        let LoginUserRequest { username, password } = request.into_inner();
+
+        let users = self.users.lock().await;
+        if let Some(hashed_password) = users.get(&username) {
+            if verify(password, hashed_password).map_err(|e| {
+                println!("Failed to verify password: {}", e);
+                Status::internal("Failed to verify password")
+            })? {
+                println!("User logged in: {}", username);
+                return Ok(Response::new(LoginUserResponse {
+                    status: CommonStatus::Ok as i32,
+                    message: "Login successful".to_string(),
+                    token: format!("token_for_{}", username), // Simplified token generation
+                }));
+            }
+        }
+
+        Ok(Response::new(LoginUserResponse {
+            status: CommonStatus::Error as i32,
+            message: "Invalid username or password".to_string(),
+            token: "".to_string(),
+        }))
+    }
 
     async fn request_file_metadata(
         &self,
