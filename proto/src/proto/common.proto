@@ -18,6 +18,7 @@ message FileMetadata {
     string file_name = 1;
     uint64 total_size = 2;
     repeated ChunkMetadata chunks = 3;
+    string owner = 4; // Add owner field
 }
 
 message ChunkMetadata {

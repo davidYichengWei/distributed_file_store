@@ -86,6 +86,7 @@ message RollbackPutResponse {
 
 message CommitDeleteRequest {
     string filename = 1;
+    string username = 2; // Add username to the request
 }
 
 message CommitDeleteResponse {

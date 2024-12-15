@@ -278,9 +278,28 @@ impl MetadataServer for MetadataService {
 
     async fn commit_delete(
         &self,
-        _request: Request<CommitDeleteRequest>,
+        request: Request<CommitDeleteRequest>,
     ) -> Result<Response<CommitDeleteResponse>, Status> {
-        println!("commit_delete called");
+        let CommitDeleteRequest { filename, username } = request.into_inner();
+
+        let mut metadata_store = self.metadata_store.lock().await;
+        if let Some(file_metadata) = metadata_store.get(&filename) {
+            if file_metadata.owner != username {
+                println!("User {} does not have permission to delete file {}", username, filename);
+                return Ok(Response::new(CommitDeleteResponse {
+                    status: CommonStatus::Error as i32,
+                }));
+            }
+        } else {
+            println!("File {} does not exist.", filename);
+            return Ok(Response::new(CommitDeleteResponse {
+                status: CommonStatus::Error as i32,
+            }));
+        }
+
+        metadata_store.remove(&filename);
+        println!("File {} deleted by user {}", filename, username);
+
         Ok(Response::new(CommitDeleteResponse {
             status: CommonStatus::Ok as i32,
         }))
@@ -316,6 +335,7 @@ impl MetadataServer for MetadataService {
     
         let file_name = metadata.file_name.clone();
         let total_size = metadata.total_size;
+        let owner = metadata.owner.clone(); // Add owner field
     
         if total_size == 0 {
             return Err(Status::invalid_argument("Total size cannot be zero."));
@@ -361,6 +381,7 @@ impl MetadataServer for MetadataService {
             file_name: file_name.clone(),
             total_size,
             chunks,
+            owner, // Add owner field
         };
     
         // Store in metadata_store

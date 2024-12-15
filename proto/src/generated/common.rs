@@ -20,6 +20,9 @@ pub struct FileMetadata {
     pub total_size: u64,
     #[prost(message, repeated, tag = "3")]
     pub chunks: ::prost::alloc::vec::Vec<ChunkMetadata>,
+    /// Add owner field
+    #[prost(string, tag = "4")]
+    pub owner: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

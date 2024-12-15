@@ -11,7 +11,7 @@ use tonic::transport::Channel;
 use tonic::Request;
 use proto::RequestFileMetadataRequest;
 use proto::metadata::{RegisterUserRequest, LoginUserRequest, LoginUserResponse};
-use keyring::Entry;
+use std::io::{self, Write};
 
 static CHUNK_SIZE: usize = 10 * 1024;
 
@@ -53,14 +53,18 @@ async fn put_file_chunk(
     mut metadata_client: MetadataServerClient<Channel>,
     file_name: String,
     file_path: PathBuf,
+    username: String,
 ) -> Result<()> {
     // Read file content
     let data = fs::read(&file_path).await?;
     let size = data.len() as u64;
 
+    let owner = username; // Replace with actual username
+
     // Check if metadata exists
     let metadata_request = Request::new(RequestFileMetadataRequest {
         filename: file_name.clone(),
+
     });
 
     let file_metadata = match metadata_client.request_file_metadata(metadata_request).await {
@@ -75,6 +79,7 @@ async fn put_file_chunk(
                     file_name: file_name.clone(),
                     total_size: size,
                     chunks: vec![], // Chunks will be filled by MetadataServer
+                    owner: owner.clone(), // Add owner field
                 }
             }
         }
@@ -194,6 +199,7 @@ async fn send_chunk_to_server(
 async fn delete_file(
     mut metadata_client: MetadataServerClient<Channel>,
     file_name: String,
+    username: String,
 ) -> Result<()> {
     // Step 1: Request file metadata
     let metadata_request = Request::new(RequestFileMetadataRequest {
@@ -204,6 +210,10 @@ async fn delete_file(
         Ok(response) => {
             let metadata = response.into_inner().metadata;
             if let Some(metadata) = metadata {
+                if metadata.owner != username {
+                    println!("You do not have permission to delete this file.");
+                    return Ok(());
+                }
                 metadata
             } else {
                 println!("File does not exist.");
@@ -275,6 +285,7 @@ async fn delete_file(
     if ack_received {
         let commit_request = tonic::Request::new(CommitDeleteRequest {
             filename: file_name.clone(),
+            username: username.clone(),
         });
         metadata_client.commit_delete(commit_request).await?;
     } else {
@@ -434,22 +445,12 @@ async fn login_user(
     let LoginUserResponse { status, message, token } = response.into_inner();
     println!("Login response: {}", message);
     if status == proto::common::Status::Ok as i32 {
-        match Entry::new("distributed_file_store", &username) {
-            Ok(entry) => {
-                if let Err(e) = entry.set_password(&token) {
-                    println!("Failed to save session token: {}", e);
-                } else {
-                    println!("Session token saved.");
-                }
-            }
-            Err(e) => {
-                println!("Failed to create keyring entry: {}", e);
-            }
-        }
+        println!("Login successful.");
+        Ok(())
     } else {
         println!("Login failed with status: {}", status);
+        Err(anyhow::anyhow!("Invalid username or password"))
     }
-    Ok(())
 }
 
 #[tokio::main]
@@ -461,12 +462,12 @@ async fn main() -> Result<()> {
             file_name,
             file_path,
         } => {
-            put_file_chunk(metadata_client, file_name, file_path).await?;
+            put_file_chunk(metadata_client, file_name, file_path, "username".to_string()).await?;
         }
         Command::Delete {
             file_name,
         } => {
-            delete_file(metadata_client, file_name).await?;
+            delete_file(metadata_client, file_name, "username".to_string()).await?;
         }
         Command::Get {
             file_name,
@@ -477,7 +478,60 @@ async fn main() -> Result<()> {
             register_user(metadata_client, username, password).await?;
         }
         Command::Login { username, password } => {
-            login_user(metadata_client, username, password).await?;
+            if let Err(_) = login_user(metadata_client.clone(), username.clone(), password).await {
+                return Ok(());
+            }
+
+            // Prompt for user input
+            loop {
+                print!("Enter command (put filename filepath | get filename | delete filename | exit): ");
+                io::stdout().flush().unwrap();
+
+                let mut input = String::new();
+                io::stdin().read_line(&mut input).unwrap();
+                let input = input.trim();
+
+                if input == "exit" {
+                    break;
+                }
+
+                let parts: Vec<&str> = input.split_whitespace().collect();
+                if parts.len() < 2 {
+                    println!("Invalid command. Please try again.");
+                    continue;
+                }
+
+                match parts[0] {
+                    "put" => {
+                        if parts.len() != 3 {
+                            println!("Invalid command. Usage: put filename filepath");
+                            continue;
+                        }
+                        let file_name = parts[1].to_string();
+                        let file_path = PathBuf::from(parts[2]);
+                        put_file_chunk(metadata_client.clone(), file_name, file_path, username.clone()).await?;
+                    }
+                    "get" => {
+                        if parts.len() != 2 {
+                            println!("Invalid command. Usage: get filename");
+                            continue;
+                        }
+                        let file_name = parts[1].to_string();
+                        get_file(metadata_client.clone(), file_name).await?;
+                    }
+                    "delete" => {
+                        if parts.len() != 2 {
+                            println!("Invalid command. Usage: delete filename");
+                            continue;
+                        }
+                        let file_name = parts[1].to_string();
+                        delete_file(metadata_client.clone(), file_name, username.clone()).await?;
+                    }
+                    _ => {
+                        println!("Unknown command. Please try again.");
+                    }
+                }
+            }
         }
     }
 

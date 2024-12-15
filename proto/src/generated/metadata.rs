@@ -100,6 +100,9 @@ pub struct RollbackPutResponse {
 pub struct CommitDeleteRequest {
     #[prost(string, tag = "1")]
     pub filename: ::prost::alloc::string::String,
+    /// Add username to the request
+    #[prost(string, tag = "2")]
+    pub username: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
