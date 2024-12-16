@@ -65,7 +65,6 @@ To use the distributed file system, follow these steps:
 3. **Perform File Operations with the Client**Use the client to perform operations such as uploading, downloading, or deleting files:
 
     - **Register and Log in**:
-
      ```bash
      cargo run --bin client register <user_name> <password>
      cargo run --bin client login <user_name> <password>
@@ -73,20 +72,22 @@ To use the distributed file system, follow these steps:
    - **Upload a File**:
 
      ```bash
-     cargo run --bin client put <file_name> <file_location>
+      put <file_name> <file_location>
      ```
    - **Download a File**:
 
      ```bash
-     cargo run --bin client get <file_name>
+      get <file_name>
      ```
    - **Delete a File**:
 
      ```bash
-     cargo run --bin client delete <file_name>
+     delete <file_name>
      ```
 
 Replace `<file_name>` with the name of the file and `<file_location>` with its path during upload.
+
+For the update operation, user should delete it and upload a new version.
 
 ---
 
@@ -123,6 +124,10 @@ cargo run --bin client
 Metadata Server: Xuhui Chen
 Client: Yifan Qu
 Storage Server: Yicheng Wei
+
+## Demo Video
+
+[Click here to watch the demo video](https://drive.google.com/file/d/1yO2D5MQT0iRtb2qEviLHUab6RbETgKOL/view?usp=drive_link)
 
 ## Lessons Learned and Remarks
 
