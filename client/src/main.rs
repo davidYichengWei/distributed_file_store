@@ -26,12 +26,14 @@ enum Command {
     Put {
         file_name: String,
         file_path: PathBuf,
+        username: String,
     },
     Get {
         file_name: String,
     },
     Delete {
         file_name: String,
+        username: String,
     },
     Register {
         username: String,
@@ -442,7 +444,7 @@ async fn login_user(
 ) -> Result<()> {
     let request = Request::new(LoginUserRequest { username: username.clone(), password });
     let response = metadata_client.login_user(request).await?;
-    let LoginUserResponse { status, message, token } = response.into_inner();
+    let LoginUserResponse { status, message, token:_ } = response.into_inner();
     println!("Login response: {}", message);
     if status == proto::common::Status::Ok as i32 {
         println!("Login successful.");
@@ -461,13 +463,15 @@ async fn main() -> Result<()> {
         Command::Put {
             file_name,
             file_path,
+            username,
         } => {
-            put_file_chunk(metadata_client, file_name, file_path, "username".to_string()).await?;
+            put_file_chunk(metadata_client, file_name, file_path, username).await?;
         }
         Command::Delete {
             file_name,
+            username ,
         } => {
-            delete_file(metadata_client, file_name, "username".to_string()).await?;
+            delete_file(metadata_client, file_name, username).await?;
         }
         Command::Get {
             file_name,
@@ -484,7 +488,7 @@ async fn main() -> Result<()> {
 
             // Prompt for user input
             loop {
-                print!("Enter command (put filename filepath | get filename | delete filename | exit): ");
+                print!("Enter command (put filename filepath | get filename | delete filename | exit): \n");
                 io::stdout().flush().unwrap();
 
                 let mut input = String::new();

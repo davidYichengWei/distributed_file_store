@@ -20,14 +20,19 @@ Our goal is to implement a distributed file system with the following objectives
 
 1. Persistent storage: The file stored in the system is persistent.
 2. Balance of workload: We use a hash ring technique so that the workload on each connected storage server is approximately the same.
-3. Fault tolarance: We have 1 replica for each file chunk, so that the system can tolarant 1 server failure simultaneously.
-4. Concurrency: The system can handle clients requests concurrently as there are many storage servers in the systems.
+3. Fault tolarance: We have 1 replica for each file chunk, so that the system can tolarant 1 server failure simultaneously. Two phase commit allows the files not lost in transmission
+4. Access control: The system has authentication on clients and clients only have permission to delete files they own
+5. Concurrency: The system can handle clients requests concurrently as there are many storage servers in the systems.
 
 ### Key Features
+
+Authentication: The client needs to register and login to do put/get/delete operation.
 
 Upload files: The client will be able to upload a file to the distributed file system.
 
 Download files: The client will be able to download a file from the system.
+
+Delete files: The client will be able to delete a file it owns
 
 Add servers: The system allows for adding storage servers to the system at any time while the system is running.
 
@@ -39,36 +44,44 @@ Detect and recover storage server failures: The system can detect the failure of
 
 To use the distributed file system, follow these steps:
 
-1. **Run the Metadata Server**  
-   Start the metadata server using the following command:  
+1. **Run the Metadata Server**
+   Start the metadata server using the following command:
+
    ```bash
    cargo run --bin metadata-server
    ```
+2. **Run Storage Servers**
+   Open a new terminal and start a storage server using:
 
-2. **Run Storage Servers**  
-   Open a new terminal and start a storage server using:  
    ```bash
    cargo run --bin storage-server -- --port 50053
-   ```  
-   You can launch additional storage servers by incrementing the port number. For example:  
+   ```
+
+   You can launch additional storage servers by incrementing the port number. For example:
+
    ```bash
    cargo run --bin storage-server -- --port 50054
    ```
+3. **Perform File Operations with the Client**Use the client to perform operations such as uploading, downloading, or deleting files:
 
-3. **Perform File Operations with the Client**  
-   Use the client to perform operations such as uploading, downloading, or deleting files:  
+    - **Register and Log in**:
 
-   - **Upload a File**:  
+     ```bash
+     cargo run --bin client register <user_name> <password>
+     cargo run --bin client login <user_name> <password>
+     ```
+   - **Upload a File**:
+
      ```bash
      cargo run --bin client put <file_name> <file_location>
      ```
+   - **Download a File**:
 
-   - **Download a File**:  
      ```bash
      cargo run --bin client get <file_name>
      ```
+   - **Delete a File**:
 
-   - **Delete a File**:  
      ```bash
      cargo run --bin client delete <file_name>
      ```
@@ -76,6 +89,7 @@ To use the distributed file system, follow these steps:
 Replace `<file_name>` with the name of the file and `<file_location>` with its path during upload.
 
 ---
+
 ## Reproducibility Guide
 
 ### Building
@@ -106,8 +120,8 @@ cargo run --bin client
 
 ## Contributions
 
-Metadata Server: Xuhui Chen 
-Client: Yifan Qu 
+Metadata Server: Xuhui Chen
+Client: Yifan Qu
 Storage Server: Yicheng Wei
 
 ## Lessons Learned and Remarks

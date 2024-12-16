@@ -1,9 +1,6 @@
 use std::{
     collections::HashMap,
     sync::{Arc},
-    thread,
-    time::Duration,
-    io,
     hash::Hasher
 };
 use tokio::sync::Mutex;
@@ -344,7 +341,7 @@ impl MetadataServer for MetadataService {
         let num_chunks = (total_size as usize + CHUNK_SIZE - 1) / CHUNK_SIZE;
     
         // Acquire hash ring and ensure servers are available
-        let servers = {
+        let _servers = {
             let hash_ring = self.hash_ring.lock().await;
             let servers: Vec<_> = hash_ring.keys().cloned().collect();
             if servers.is_empty() {
@@ -476,47 +473,6 @@ async fn delete_chunk_from_server(
     Ok(())
 }
 
-fn is_responsible_or_replica(
-    hash_ring: &tokio::sync::MutexGuard<'_, HashMap<std::string::String, usize>>,
-    chunk: &ChunkMetadata,
-) -> bool {
-    // Compute new responsible server
-    let primary = get_responsible_server(hash_ring, chunk.chunk_index);
-    let replica = get_next_server(hash_ring, &primary);
-
-    // Current servers (from chunk metadata)
-    let current_primary = format!("{}:{}", chunk.server_address, chunk.server_port);
-    let current_replica = format!(
-        "{}:{}",
-        chunk.replica_server_address, chunk.replica_server_port
-    );
-
-    // Check if the chunk belongs to the recomputed responsible servers
-    current_primary == primary || current_replica == replica
-}
-
-
-
-fn get_chunks_on_server(
-    metadata_store: HashMap<String, FileMetadata>,
-    server: &str,
-) -> Vec<ChunkMetadata> {
-    metadata_store
-        .values()
-        .flat_map(|file| file.chunks.iter())
-        .filter(|chunk| {
-            let primary_server = format!("{}:{}", chunk.server_address, chunk.server_port);
-            let replica_server = format!(
-                "{}:{}",
-                chunk.replica_server_address, chunk.replica_server_port
-            );
-            primary_server == server || replica_server == server
-        })
-        .cloned()
-        .collect()
-}
-
-
 async fn rebalance_chunks(
     metadata_store: Arc<Mutex<HashMap<String, FileMetadata>>>,
     hash_ring: Arc<Mutex<HashMap<String, usize>>>,
@@ -602,7 +558,7 @@ async fn rebalance_chunks(
                 // Iterate over all chunks in each file
                 for chunk in &file_metadata.chunks {
                     // Determine the current server from the chunk
-                    let current_server = format!("{}:{}", chunk.server_address, chunk.server_port);
+                    let _current_server = format!("{}:{}", chunk.server_address, chunk.server_port);
                     let replica_server = format!(
                         "{}:{}",
                         chunk.replica_server_address, chunk.replica_server_port
@@ -753,7 +709,7 @@ async fn handle_missing_heartbeat(
                 // Iterate over all chunks in each file
                 for chunk in &file_metadata.chunks {
                     // Determine the current server from the chunk
-                    let current_server = format!("{}:{}", chunk.server_address, chunk.server_port);
+                    let _current_server = format!("{}:{}", chunk.server_address, chunk.server_port);
                     let replica_server = format!(
                         "{}:{}",
                         chunk.replica_server_address, chunk.replica_server_port
